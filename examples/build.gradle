@@ -29,12 +29,14 @@ def protocVersion = protobufVersion
 dependencies {
     implementation "io.grpc:grpc-protobuf:${grpcVersion}"
     implementation "io.grpc:grpc-stub:${grpcVersion}"
+    implementation group: 'io.grpc', name: 'grpc-netty', version: grpcVersion
+    implementation 'com.google.guava:guava:27.1-jre'
     compileOnly "javax.annotation:javax.annotation-api:1.2"
 
     // examples/advanced need this for JsonFormat
     implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}"
 
-    runtimeOnly "io.grpc:grpc-netty-shaded:${grpcVersion}"
+//    runtimeOnly "io.grpc:grpc-netty-shaded:${grpcVersion}"
 
     testImplementation "io.grpc:grpc-testing:${grpcVersion}"
     testImplementation "junit:junit:4.12"
@@ -44,7 +46,7 @@ dependencies {
 protobuf {
     protoc { artifact = "com.google.protobuf:protoc:${protocVersion}" }
     plugins {
-        grpc { artifact = "io.grpc:protoc-gen-grpc-java:${grpcVersion}" }
+        grpc { artifact = "io.grpc:protoc-gen-grpc-java:1.19.0"} //${grpcVersion}" }
     }
     generateProtoTasks {
         all()*.plugins { grpc {} }

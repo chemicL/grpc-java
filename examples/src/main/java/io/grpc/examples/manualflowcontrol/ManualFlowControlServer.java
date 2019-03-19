@@ -16,19 +16,31 @@
 
 package io.grpc.examples.manualflowcontrol;
 
+import com.google.common.util.concurrent.RateLimiter;
+import io.grpc.Metadata;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import io.grpc.ServerCall;
+import io.grpc.ServerCallHandler;
+import io.grpc.ServerInterceptor;
 import io.grpc.Status;
 import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
 public class ManualFlowControlServer {
   private static final Logger logger =
       Logger.getLogger(ManualFlowControlServer.class.getName());
+
+  static final AtomicLong concurrentReqs = new AtomicLong();
+  public static final int MAX_REQS = 500;
+  public static final int MAX_STREAMS = 100;
+
+  static final RateLimiter rateLimiter = RateLimiter.create(MAX_REQS);
 
   public static void main(String[] args) throws InterruptedException, IOException {
     // Service class implementation
@@ -94,6 +106,7 @@ public class ManualFlowControlServer {
                 // If the server runs out of buffer space, isReady() will turn false. When the receive buffer has
                 // sufficiently drained, isReady() will turn true, and the serverCallStreamObserver's onReadyHandler
                 // will be called to restart the message pump.
+                rateLimiter.acquire();
                 serverCallStreamObserver.request(1);
               } else {
                 // If not, note that back-pressure has begun.
@@ -110,6 +123,7 @@ public class ManualFlowControlServer {
           public void onError(Throwable t) {
             // End the response stream if the client presents an error.
             t.printStackTrace();
+            concurrentReqs.decrementAndGet();
             responseObserver.onCompleted();
           }
 
@@ -117,15 +131,35 @@ public class ManualFlowControlServer {
           public void onCompleted() {
             // Signal the end of work when the client ends the request stream.
             logger.info("COMPLETED");
+            concurrentReqs.decrementAndGet();
             responseObserver.onCompleted();
           }
         };
       }
     };
 
+    ServerInterceptor rateLimitingInterceptor = new ServerInterceptor() {
+
+
+      @Override
+      public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(ServerCall<ReqT, RespT> call, Metadata headers, ServerCallHandler<ReqT, RespT> next) {
+        logger.info("Got call");
+        if (concurrentReqs.get() >= MAX_STREAMS) {
+          call.close(Status.UNAVAILABLE, new Metadata());
+          logger.info("Rejecting stream");
+          return new ServerCall.Listener<ReqT>() {};
+        }
+
+        concurrentReqs.incrementAndGet();
+        return next.startCall(call, headers);
+      }
+    };
+
     final Server server = ServerBuilder
+//    final Server server = NettyServerBuilder
         .forPort(50051)
         .addService(svc)
+        .intercept(rateLimitingInterceptor)
         .build()
         .start();
 
